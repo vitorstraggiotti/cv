@@ -380,7 +380,3 @@ pixel_t** sobel_edge_kernel_conv(dimensions_t Dimension, pixel_t** PixelMatrix)
 	return FinalPixelMatrix;
 }
 
-
-
-
-

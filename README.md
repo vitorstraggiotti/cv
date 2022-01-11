@@ -1,2 +1,2 @@
 # cv
-Simple computer vision functions for C language
+Simple computer vision library for C language
