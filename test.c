@@ -26,15 +26,28 @@ int main(int argc, char* argv[])
 		exit(EXIT_FAILURE);
 	}
 
-	img_t *InputImage;
+	img_t		*InputImage;
 
-	img_t *ImgToGrayAverage;
-	img_t *ImgToGrayLumi;
-	img_t *ImgToGrayAprox;
+	img_t		*ImgToGrayAverage;
+	img_t		*ImgToGrayLumi;
+	img_t		*ImgToGrayAprox;
 
-	img_t *ImgRedFilter;
-	img_t *ImgGreenFilter;
-	img_t *ImgBlueFilter;
+	img_t		*ImgRedFilter;
+	img_t		*ImgGreenFilter;
+	img_t		*ImgBlueFilter;
+
+	kernel_t	*LowPassKernel;
+	kernel_t	*HighPassKernel;
+
+	img_t		*ImgLowPassBlack;
+	img_t		*ImgLowPassWhite;
+	img_t		*ImgHighPassBlack;
+	img_t		*ImgHighPassWhite;
+
+	img_t		*ImgConvLowPassBlack;
+	img_t		*ImgConvLowPassWhite;
+	img_t		*ImgConvHighPassBlack;
+	img_t		*ImgConvHighPassWhite;
 
 	InputImage = read_BMP(argv[1]);
 
@@ -42,20 +55,20 @@ int main(int argc, char* argv[])
 	/*                        TESTING: RGB_to_grayscale()                        */
 	/*===========================================================================*/
 	printf("Converting to grayscale (GRAY_AVERAGE) ...\n");
-	ImgToGrayAverage = copy_BMP(InputImage);
-	if(RGB_to_grayscale(ImgToGrayAverage, GRAY_AVERAGE) == -1)
+	ImgToGrayAverage = RGB_to_grayscale(InputImage, GRAY_AVERAGE);
+	if(ImgToGrayAverage == NULL)
 		exit_msg("Error: conversion to grayscale failed on \"GRAY_AVERAGE\"\n",
 					EXIT_FAILURE);
 
 	printf("Converting to grayscale (GRAY_LUMI_PERCEP) ...\n");
-	ImgToGrayLumi = copy_BMP(InputImage);
-	if(RGB_to_grayscale(ImgToGrayLumi, GRAY_LUMI_PERCEP) == -1)
+	ImgToGrayLumi = RGB_to_grayscale(InputImage, GRAY_LUMI_PERCEP);
+	if(ImgToGrayLumi == NULL)
 		exit_msg("Error: conversion to grayscale failed on \"GRAY_LUMI_PPERCEP\"\n",
 					EXIT_FAILURE);
 
 	printf("Converting to grayscale (GRAY_APROX_GAM_LUMI_PERCEP) ...\n");
-	ImgToGrayAprox = copy_BMP(InputImage);
-	if(RGB_to_grayscale(ImgToGrayAprox, GRAY_APROX_GAM_LUMI_PERCEP) == -1)
+	ImgToGrayAprox = RGB_to_grayscale(InputImage, GRAY_APROX_GAM_LUMI_PERCEP);
+	if(ImgToGrayAprox == NULL)
 		exit_msg("Error: conversion to grayscale failed on \"GRAY_APROX_GAM_LUMIPERCEP\"\n",
 					EXIT_FAILURE);
 
@@ -78,18 +91,18 @@ int main(int argc, char* argv[])
 	/*                       TESTING: channel_pass_filter()                      */
 	/*===========================================================================*/
 	printf("Image filtering (RED CHANNEL) ...\n");
-	ImgRedFilter = copy_BMP(InputImage);
-	if(channel_pass_filter(ImgRedFilter, PASS_RED_CHANNEL) == -1)
+	ImgRedFilter = channel_pass_filter(InputImage, PASS_RED_CHANNEL);
+	if(ImgRedFilter == NULL)
 		exit_msg("Error: red channel pass filter failed.\n", EXIT_FAILURE);
 
 	printf("Image filtering (GREEN CHANNEL) ...\n");
-	ImgGreenFilter = copy_BMP(InputImage);
-	if(channel_pass_filter(ImgGreenFilter, PASS_GREEN_CHANNEL) == -1)
+	ImgGreenFilter = channel_pass_filter(InputImage, PASS_GREEN_CHANNEL);
+	if(ImgGreenFilter == NULL)
 		exit_msg("Error: green channel pass filter failed.\n", EXIT_FAILURE);
 
 	printf("Image filtering (BLUE CHANNEL) ...\n");
-	ImgBlueFilter = copy_BMP(InputImage);
-	if(channel_pass_filter(ImgBlueFilter, PASS_BLUE_CHANNEL) == -1)
+	ImgBlueFilter = channel_pass_filter(InputImage, PASS_BLUE_CHANNEL);
+	if(ImgBlueFilter == NULL)
 		exit_msg("Error: blue channel pass filter failed.\n", EXIT_FAILURE);
 
 	printf("Saving filtered images ...\n\n");
@@ -108,8 +121,119 @@ int main(int argc, char* argv[])
 	free_img(ImgBlueFilter);
 
 	/*===========================================================================*/
-	/*                       TESTING:                       */
+	/*                TESTING: create_kernel_low_pass_filter()                   */
 	/*===========================================================================*/
+	printf("Creating low pass filter kernel ...\n");
+	LowPassKernel = create_kernel_low_pass_filter(11, 11, NEIGHBOR_AVERAGE);
+	if(LowPassKernel == NULL)
+		exit_msg("Error: Could not create low pass filter kernel.\n", EXIT_FAILURE);
+
+	/*===========================================================================*/
+	/*                TESTING: create_kernel_high_pass_filter()                   */
+	/*===========================================================================*/
+	printf("Creating high pass filter kernel ...\n\n");
+	HighPassKernel = create_kernel_high_pass_filter(3, 3, LAPLACIAN_OPERATOR);
+	if(HighPassKernel == NULL)
+		exit_msg("Error: Could not create high pass filter kernel.\n", EXIT_FAILURE);
+
+	/*===========================================================================*/
+	/*                 TESTING: parallel_cross_correlation()                     */
+	/*===========================================================================*/
+	printf("Making cross correlation (LOW_PASS, BLACK_BORDER) ...\n");
+	ImgLowPassBlack = parallel_cross_correlation(InputImage, LowPassKernel, 1, BORDER_BLACK);
+	if(ImgLowPassBlack == NULL)
+		exit_msg("Error: Could not make cross correlation (LOW_PASS, BLACK_BORDER).\n",
+					EXIT_FAILURE);
+
+	printf("Making cross correlation (LOW_PASS, WHITE_BORDER) ...\n");
+	ImgLowPassWhite = parallel_cross_correlation(InputImage, LowPassKernel, 1, BORDER_WHITE);
+	if(ImgLowPassWhite == NULL)
+		exit_msg("Error: Could not make cross correlation (LOW_PASS, BLACK_WHITE).\n",
+					EXIT_FAILURE);
+
+	printf("Making cross correlation (HIGH_PASS, BLACK_BORDER) ...\n");
+	ImgHighPassBlack = parallel_cross_correlation(InputImage, HighPassKernel, 1, BORDER_BLACK);
+	if(ImgHighPassBlack == NULL)
+		exit_msg("Error: Could not make cross correlation (HIGH_PASS, BLACK_BORDER).\n",
+					EXIT_FAILURE);
+
+	printf("Making cross correlation (HIGH_PASS, WHITE_BORDER) ...\n");
+	ImgHighPassWhite = parallel_cross_correlation(InputImage, HighPassKernel, 1, BORDER_WHITE);
+	if(ImgHighPassWhite == NULL)
+		exit_msg("Error: Could not make cross correlation (HIGH_PASS, BLACK_WHITE).\n",
+					EXIT_FAILURE);
+
+	printf("Saving cross correlated images ...\n\n");
+
+	if(save_BMP(ImgLowPassBlack, "saida7-LowPassBlack.bmp") == -1)
+		exit_msg("Error: Could not save \"LowPassBlack\" image file.\n", EXIT_FAILURE);
+
+	if(save_BMP(ImgLowPassWhite, "saida8-LowPassWhite.bmp") == -1)
+		exit_msg("Error: Could not save \"LowPassWhite\" image file.\n", EXIT_FAILURE);
+
+	if(save_BMP(ImgHighPassBlack, "saida9-HighPassBlack.bmp") == -1)
+		exit_msg("Error: Could not save \"HighPassBlack\" image file.\n", EXIT_FAILURE);
+
+	if(save_BMP(ImgHighPassWhite, "saida10-HighPassWhite.bmp") == -1)
+		exit_msg("Error: Could not save \"HighPassWhite\" image file.\n", EXIT_FAILURE);
+
+	free_img(ImgLowPassBlack);
+	free_img(ImgLowPassWhite);
+	free_img(ImgHighPassBlack);
+	free_img(ImgHighPassWhite);
+
+	/*===========================================================================*/
+	/*                 TESTING: parallel_convolution()                           */
+	/*===========================================================================*/
+	printf("Making convolution (LOW_PASS, BLACK_BORDER) ...\n");
+	ImgConvLowPassBlack = parallel_convolution(InputImage, LowPassKernel, 1, BORDER_BLACK);
+	if(ImgConvLowPassBlack == NULL)
+		exit_msg("Error: Could not make convolution (LOW_PASS, BLACK_BORDER).\n",
+					EXIT_FAILURE);
+
+	printf("Making convolution (LOW_PASS, WHITE_BORDER) ...\n");
+	ImgConvLowPassWhite = parallel_convolution(InputImage, LowPassKernel, 1, BORDER_WHITE);
+	if(ImgConvLowPassWhite == NULL)
+		exit_msg("Error: Could not make convolution (LOW_PASS, BLACK_WHITE).\n",
+					EXIT_FAILURE);
+
+	printf("Making convolution (HIGH_PASS, BLACK_BORDER) ...\n");
+	ImgConvHighPassBlack = parallel_convolution(InputImage, HighPassKernel, 1, BORDER_BLACK);
+	if(ImgConvHighPassBlack == NULL)
+		exit_msg("Error: Could not make convolution (HIGH_PASS, BLACK_BORDER).\n",
+					EXIT_FAILURE);
+
+	printf("Making convolution (HIGH_PASS, WHITE_BORDER) ...\n");
+	ImgConvHighPassWhite = parallel_convolution(InputImage, HighPassKernel, 1, BORDER_WHITE);
+	if(ImgConvHighPassWhite == NULL)
+		exit_msg("Error: Could not make convolution (HIGH_PASS, BLACK_WHITE).\n",
+					EXIT_FAILURE);
+
+	printf("Saving convoluted images ...\n\n");
+
+	if(save_BMP(ImgConvLowPassBlack, "saida11-ConvLowPassBlack.bmp") == -1)
+		exit_msg("Error: Could not save \"ConvLowPassBlack\" image file.\n", EXIT_FAILURE);
+
+	if(save_BMP(ImgConvLowPassWhite, "saida12-ConvLowPassWhite.bmp") == -1)
+		exit_msg("Error: Could not save \"ConvLowPassWhite\" image file.\n", EXIT_FAILURE);
+
+	if(save_BMP(ImgConvHighPassBlack, "saida13-ConvHighPassBlack.bmp") == -1)
+		exit_msg("Error: Could not save \"ConvHighPassBlack\" image file.\n", EXIT_FAILURE);
+
+	if(save_BMP(ImgConvHighPassWhite, "saida14-ConvHighPassWhite.bmp") == -1)
+		exit_msg("Error: Could not save \"ConvHighPassWhite\" image file.\n", EXIT_FAILURE);
+
+	free_img(ImgConvLowPassBlack);
+	free_img(ImgConvLowPassWhite);
+	free_img(ImgConvHighPassBlack);
+	free_img(ImgConvHighPassWhite);
+		
+	/*===========================================================================*/
+	/*                           TESTING: free_kernel()                          */
+	/*===========================================================================*/
+	free_kernel(LowPassKernel);
+	free_kernel(HighPassKernel);
+
 		
 	free_img(InputImage);
 

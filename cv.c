@@ -10,7 +10,7 @@
 /*=============================================================================*/
 /*##########                    HELPER FUNCTIONS                     ##########*/
 /*=============================================================================*/
-int is_out_of_bound(int32_t KerRow, int32_t KerColumn, int32_t ImgRow, int32_t ImgColumn,
+static int is_out_of_bound(int32_t KerRow, int32_t KerColumn, int32_t ImgRow, int32_t ImgColumn,
 					int32_t ImgHeight, int32_t ImgWidth, int32_t KerHeight, int32_t KerWidth)
 {
 	int32_t RowToCheck = (KerRow - KerHeight/2) + ImgRow;
@@ -27,6 +27,7 @@ int is_out_of_bound(int32_t KerRow, int32_t KerColumn, int32_t ImgRow, int32_t I
 	}
 }
 /*******************************************************************************/
+/* Receive "correlation_work_t" type and makes cross correlation on given row interval*/
 static void *cross_correlation(void *ThreadArg)
 {
 	/* Args->(int32_t StartRow, int32_t EndRow kernel_t *Kernel img_t *InputImage) */
@@ -40,6 +41,10 @@ static void *cross_correlation(void *ThreadArg)
 	int32_t KerHeight	= Args->Kernel->Height;
 	int32_t KerWidth	= Args->Kernel->Width;
 
+	float	Acc = 0.0;
+	float	KerWeight;
+	int32_t	ImgTmpRow, ImgTmpCol;
+
 	for(int32_t ImgRow = StartRow; ImgRow < EndRow; ImgRow++)
 	{
 		for(int32_t ImgColumn = 0; ImgColumn < ImgWidth; ImgColumn++)
@@ -49,8 +54,12 @@ static void *cross_correlation(void *ThreadArg)
 			/* Do cross correlation in one pixel (assuming grayscale with 3 channel) */
 			for(int32_t KerRow = 0; KerRow < KerHeight; KerRow++)
 			{
-				for(int32_t KerColumn = 0; KerRow < KerWidth; KerColumn++)
+				for(int32_t KerColumn = 0; KerColumn < KerWidth; KerColumn++)
 				{
+					ImgTmpRow = KerRow - KerHeight/2 + ImgRow;
+					ImgTmpCol = KerColumn - KerWidth/2 + ImgColumn;
+					KerWeight = Args->Kernel->Weight[KerRow][KerColumn];
+					
 					/* Check if correspondent image pixel is out of bound */
 					if(is_out_of_bound(KerRow, KerColumn, ImgRow, ImgColumn,
 										ImgHeight, ImgWidth, KerHeight, KerWidth))
@@ -58,19 +67,11 @@ static void *cross_correlation(void *ThreadArg)
 						switch(Args->BorderHandling)
 						{
 							case BORDER_BLACK:
-								#error "implement"
+								/* Do nothing because in this case: Acc += 0 */
 								break;
 
 							case BORDER_WHITE:
-								#error "implement"
-								break;
-
-							case BORDER_REPLICATE:
-								#error "implement"
-								break;
-
-							case BORDER_REFLECT:
-								#error "implment"
+								Acc += KerWeight * 255;
 								break;
 
 							default:
@@ -80,17 +81,60 @@ static void *cross_correlation(void *ThreadArg)
 					}
 					else
 					{
-						#error "implement"
+						Acc += KerWeight * Args->InputImage->Pixel24[ImgTmpRow][ImgTmpCol].Red;
 					}
 				}
 			}
+			
+			if(Acc > 255)
+				Acc = 255.0;
+			else if(Acc < 0)
+				Acc = 0;
+				
+			Args->OutputImage->Pixel24[ImgRow][ImgColumn].Red = (uint8_t)Acc;
+			Args->OutputImage->Pixel24[ImgRow][ImgColumn].Green = (uint8_t)Acc;
+			Args->OutputImage->Pixel24[ImgRow][ImgColumn].Blue = (uint8_t)Acc;
+			Acc = 0.0;
 		}
 	}
 }
 /*******************************************************************************/
 static void *convolution(void *ThreadArg)
 {
-	#error "implement convolution() function"
+	/* Args->(int32_t StartRow, int32_t EndRow kernel_t *Kernel img_t *InputImage) */
+	correlation_work_t *Args = (correlation_work_t *)ThreadArg;
+
+	float		**NewWeight;
+	int32_t		TmpRow, TmpCol;
+
+	/* Allocate memory for convolution kernel */		
+	NewWeight = (float **)malloc(sizeof(float *) * Args->Kernel->Height);
+	for(int32_t Row = 0; Row < Args->Kernel->Height; Row++)
+	{
+		NewWeight[Row] = (float *)malloc(sizeof(float) * Args->Kernel->Width);
+	}
+
+	/* Convolution is a cross correlation with the kernel matrix rotated 180° */
+	/* Rotating kernel matrix 180° */
+	for(int32_t Row = 0; Row < Args->Kernel->Height; Row++)
+	{
+		for(int32_t Column = 0; Column < Args->Kernel->Width; Column++)
+		{
+			TmpRow = Args->Kernel->Height - (1 + Row);
+			TmpCol = Args->Kernel->Width - (1 + Column);
+			NewWeight[Row][Column] = Args->Kernel->Weight[TmpRow][TmpCol];
+		}
+	}
+
+	for(int32_t Row = 0; Row < Args->Kernel->Height; Row++)
+	{
+		free(Args->Kernel->Weight[Row]);
+	}
+	free(Args->Kernel->Weight);
+
+	Args->Kernel->Weight = NewWeight;
+
+	cross_correlation((void *)Args);
 }
 
 /*=============================================================================*/
@@ -104,12 +148,13 @@ static void *convolution(void *ThreadArg)
 	Pixel = (0.2126Red + 0.7152Green + 0.0722Blue)/1
 	(method: linear aproximation of gamma and luminance perception) ==> GRAY_APROX_GAM_LUMI_PERCEP
 	Pixel = (0.299Red + 0.587Green + 0.114Blue)/1 */
-int RGB_to_grayscale(img_t *InputImage, int Method)
+img_t *RGB_to_grayscale(img_t *InputImage, int Method)
 {
 	if(InputImage == NULL)
-		return -1;
+		return NULL;
 
 	int32_t RedWeight, GreenWeight, BlueWeight;
+	img_t	*OutImg;
 	
 	switch(Method)
 	{
@@ -134,34 +179,40 @@ int RGB_to_grayscale(img_t *InputImage, int Method)
 		default :
 			printf("Error: invalid \"Method\" input on RGB_to_grayscale function. Should be:\n");
 			printf("       GRAY_AVERAGE, GRAY_LUMI_PERCEP or GRAY_APROX_GAM_LUMI_PERCEP\n\n");
-			return -1;
+			return NULL;
 	}
+
+	OutImg = new_BMP_as_size(InputImage);
 	
 	for(int32_t Row = 0; Row < InputImage->Height; Row++)
 	{
 		for(int32_t Column = 0; Column < InputImage->Width; Column++)
 		{
-			InputImage->Pixel24[Row][Column].Red = ((InputImage->Pixel24[Row][Column].Red * RedWeight) 
-			                                     + (InputImage->Pixel24[Row][Column].Green * GreenWeight)
-			                                     + (InputImage->Pixel24[Row][Column].Blue * BlueWeight))/10000;
+			OutImg->Pixel24[Row][Column].Red = ((InputImage->Pixel24[Row][Column].Red * RedWeight) 
+			                                  + (InputImage->Pixel24[Row][Column].Green * GreenWeight)
+			                                  + (InputImage->Pixel24[Row][Column].Blue * BlueWeight))/10000;
 
-			InputImage->Pixel24[Row][Column].Green = InputImage->Pixel24[Row][Column].Red;
-			InputImage->Pixel24[Row][Column].Blue = InputImage->Pixel24[Row][Column].Red;
+			OutImg->Pixel24[Row][Column].Green = OutImg->Pixel24[Row][Column].Red;
+			OutImg->Pixel24[Row][Column].Blue = OutImg->Pixel24[Row][Column].Red;
 		}
 	}
 
-	return 0;
+	return OutImg;
 }
 
 /*******************************************************************************/
 /* Channel pass filter. Return -1 if fail or 0 on success.
-	ChannelSelect = PASS_RED_CHANNEL
-	ChannelSelect = PASS_GREEN_CHANNEL
-	ChannelSelect = PASS_BLUE_CHANNEL */
-int channel_pass_filter(img_t *InputImage, int ChannelSelect)
+	ChannelSelect --> PASS_RED_CHANNEL
+	                  PASS_GREEN_CHANNEL
+	                  PASS_BLUE_CHANNEL */
+img_t *channel_pass_filter(img_t *InputImage, int ChannelSelect)
 {
 	if(InputImage == NULL)
-		return -1;
+		return NULL;
+
+	img_t	*OutImg;
+
+	OutImg = new_BMP_as_size(InputImage);
 
 	switch(ChannelSelect)
 	{
@@ -170,8 +221,9 @@ int channel_pass_filter(img_t *InputImage, int ChannelSelect)
 			{
 				for(int32_t Column = 0; Column < InputImage->Width; Column++)
 				{
-					InputImage->Pixel24[Row][Column].Green = 0;
-					InputImage->Pixel24[Row][Column].Blue = 0;
+					OutImg->Pixel24[Row][Column].Red = InputImage->Pixel24[Row][Column].Red;
+					OutImg->Pixel24[Row][Column].Green = 0;
+					OutImg->Pixel24[Row][Column].Blue = 0;
 				}
 			}
 			break;
@@ -181,8 +233,9 @@ int channel_pass_filter(img_t *InputImage, int ChannelSelect)
 			{
 				for(int32_t Column = 0; Column < InputImage->Width; Column++)
 				{
-					InputImage->Pixel24[Row][Column].Red = 0;
-					InputImage->Pixel24[Row][Column].Blue = 0;
+					OutImg->Pixel24[Row][Column].Red = 0;
+					OutImg->Pixel24[Row][Column].Green = InputImage->Pixel24[Row][Column].Green;
+					OutImg->Pixel24[Row][Column].Blue = 0;
 				}
 			}
 			break;
@@ -192,8 +245,9 @@ int channel_pass_filter(img_t *InputImage, int ChannelSelect)
 			{
 				for(int Column = 0; Column < InputImage->Width; Column++)
 				{
-					InputImage->Pixel24[Row][Column].Red = 0;
-					InputImage->Pixel24[Row][Column].Green = 0;
+					OutImg->Pixel24[Row][Column].Red = 0;
+					OutImg->Pixel24[Row][Column].Green = 0;
+					OutImg->Pixel24[Row][Column].Blue = InputImage->Pixel24[Row][Column].Blue;
 				}
 			}
 			break;
@@ -201,39 +255,173 @@ int channel_pass_filter(img_t *InputImage, int ChannelSelect)
 		default :
 			printf("Error: invalid \"ChannelSelect\" input on channel_pass_filter function. Should be:\n");
 			printf("       PASS_RED_CHANNEL, PASS_GREEN_CHANNEL or PASS_BLUE_CHANNEL\n\n");
-			return -1;
+			free_img(OutImg);
+			return NULL;
 	}
 
-	return 0;
+	return OutImg;
 }
 /*******************************************************************************/
-kernel_t *create_kernel_low_pass_filter(void)
+/* Frees memory allocated by the kernel template */
+void free_kernel(kernel_t *Kernel)
 {
-	#error "implement create_kernel_low_pass_filter() function"
+	for (int32_t Row = 0; Row < Kernel->Height; Row++)
+	{
+		free(Kernel->Weight[Row]);
+	}
+	free(Kernel->Weight);
+	free(Kernel);
 }
 /*******************************************************************************/
-kernel_t *create_kernel_high_pass_filter(void)
+/* Create a low pass filter kernel with given odd dimension. Return NULL if fail
+   Type --> NEIGHBOR_AVERAGE */
+kernel_t *create_kernel_low_pass_filter(int32_t Height, int32_t Width, int Type)
 {
-	#error "implement create_kernel_high_pass_filter() function"
+	kernel_t	*Kernel;
+
+	/* Check if dimensions are odd */
+	if(((Height % 2) == 0) || ((Width % 2) == 0))
+	{
+		printf("Error: kernel dimensions need to be odd.\n");
+		return NULL;
+	}
+
+	/* Allocating kernel */
+	Kernel = (kernel_t *)malloc(sizeof(kernel_t));
+	Kernel->Weight = (float **)malloc(sizeof(float *) * Height);
+	for(int32_t Row = 0; Row < Height; Row++)
+	{
+		Kernel->Weight[Row] = (float *)malloc(sizeof(float) * Width);
+	}
+
+	/* Assingning values */
+	Kernel->Height = Height;
+	Kernel->Width = Width;
+
+	switch(Type)
+	{
+		case NEIGHBOR_AVERAGE:
+			for(int32_t Row = 0; Row < Height; Row++)
+			{
+				for(int32_t Column = 0; Column < Width; Column++)
+				{
+					Kernel->Weight[Row][Column] = 1.0/(Height * Width);
+				}
+			}
+			break;
+
+		default:
+			free_kernel(Kernel);
+			printf("Error: Type not supported on low pass kernel creation.\n");
+			return NULL;
+	}
+
+	return Kernel;
 }
 /*******************************************************************************/
-void free_kernel(kernel_t *kernel)
+/* Create a high pass filter kernel with given odd dimension. Return NULL if fail
+   Type --> LAPLACIAN_OPERATOR */
+kernel_t *create_kernel_high_pass_filter(int32_t Height, int32_t Width, int Type)
 {
-	#error "implement free_kernel() function"
+	kernel_t	*Kernel;
+
+	/* Check if dimensions are odd */
+	if(((Height % 2) == 0) || ((Width % 2) == 0))
+	{
+		printf("Error: kernel dimensions need to be odd.\n");
+		return NULL;
+	}	
+
+	/* Allocating kernel */
+	Kernel = (kernel_t *)malloc(sizeof(kernel_t));
+	Kernel->Weight = (float **)malloc(sizeof(float *) * Height);
+	for(int32_t Row = 0; Row < Height; Row++)
+	{
+		Kernel->Weight[Row] = (float *)malloc(sizeof(float) * Width);
+	}
+
+	/* Assingning values */
+	Kernel->Height = Height;
+	Kernel->Width = Width;
+
+	switch(Type)
+	{
+		case LAPLACIAN_OPERATOR:
+			for(int32_t Row = 0; Row < Height; Row++)
+			{
+				for(int32_t Column = 0; Column < Width; Column++)
+				{
+					if((Row == Height/2) && (Column == Width/2))
+					{
+						Kernel->Weight[Row][Column] = ((Height * Width) - 1)/(Height * Width);
+					}
+					else
+					{
+						Kernel->Weight[Row][Column] = -1.0/(Height * Width);
+					}
+				}
+			}
+			break;
+
+		default:
+			free_kernel(Kernel);
+			printf("Error: Type not supported on high pass kernel creation.\n");
+			return NULL;
+	}
+
+	return Kernel;
 }
 /*******************************************************************************/
-/*	BORDER_BLACK,
-	BORDER_WHITE,
-	BORDER_REPLICATE,
-	BORDER_REFLECT */
-int parallel_cross_correlation(void)
+/* Makes cross correlation betwen the kernel and image using multiple threads.
+   Return NULL if fail
+	Img     --> Pointer to source image. This image will also be the output.
+	Kernel  --> Pointer to the the kernel to be used.
+	Threads --> Number of threads to be used in parallel on computacion
+	Border  --> BORDER_BLACK
+	            BORDER_WHITE */
+img_t *parallel_cross_correlation(img_t *Img, kernel_t *Kernel, int32_t Threads, int Border)
 {
-	#error "implement parallel_cross_correlation() function"
+	if((Img == NULL) || (Kernel == NULL) || (Threads < 1))
+		return NULL;
+
+	correlation_work_t	ThreadArg;
+
+	ThreadArg.StartRow = 0;
+	ThreadArg.EndRow = Img->Height;
+	ThreadArg.BorderHandling = Border;
+	ThreadArg.Kernel = Kernel;
+	ThreadArg.InputImage = Img;
+	ThreadArg.OutputImage = new_BMP_as_size(Img);
+
+	cross_correlation((void *)&ThreadArg);
+
+	return ThreadArg.OutputImage;
 }
 /*******************************************************************************/
-int parallel_convolution(void)
+/* Makes convolution betwen the kernel and image using multiple threads.
+   Return NULL if fail
+	Img     --> Pointer to source image. This image will also be the output.
+	Kernel  --> Pointer to the the kernel to be used.
+	Threads --> Number of threads to be used in parallel on computacion
+	Border  --> BORDER_BLACK
+	            BORDER_WHITE */
+img_t *parallel_convolution(img_t *Img, kernel_t *Kernel, int32_t Threads, int Border)
 {
-	#error "implement parallel_convolution() function"
+	if((Img == NULL) || (Kernel == NULL) || (Threads < 1))
+		return NULL;
+
+	correlation_work_t	ThreadArg;
+
+	ThreadArg.StartRow = 0;
+	ThreadArg.EndRow = Img->Height;
+	ThreadArg.BorderHandling = Border;
+	ThreadArg.Kernel = Kernel;
+	ThreadArg.InputImage = Img;
+	ThreadArg.OutputImage = new_BMP_as_size(Img);
+
+	convolution((void *)&ThreadArg);
+
+	return ThreadArg.OutputImage;
 }
 
 
