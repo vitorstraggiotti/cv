@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <pthread.h>
 
  #include "bitmap.h"
  
@@ -77,6 +78,7 @@ enum lf_kernel_filter
 /* Defines the type of high pass filter kernel */
 enum hf_kernel_filter
 {
+	LAPLACIAN_OPERATOR_NORM,  /* Normalized kernel */
 	LAPLACIAN_OPERATOR
 };
 /*******************************************************************************
@@ -129,6 +131,9 @@ img_t *parallel_cross_correlation(img_t *Img, kernel_t *Kernel, int32_t Threads,
 	Border  --> BORDER_BLACK
 	            BORDER_WHITE */
 img_t *parallel_convolution(img_t *Img, kernel_t *Kernel, int32_t Threads, int Border);
+
+/* Generate the histogram for a given image */
+void histogram(img_t *Img);
 
 
 #endif

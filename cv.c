@@ -10,12 +10,8 @@
 /*=============================================================================*/
 /*##########                    HELPER FUNCTIONS                     ##########*/
 /*=============================================================================*/
-static int is_out_of_bound(int32_t KerRow, int32_t KerColumn, int32_t ImgRow, int32_t ImgColumn,
-					int32_t ImgHeight, int32_t ImgWidth, int32_t KerHeight, int32_t KerWidth)
+static int is_out_of_bound(int32_t ImgHeight, int32_t ImgWidth, int32_t RowToCheck, int32_t ColumnToCheck)
 {
-	int32_t RowToCheck = (KerRow - KerHeight/2) + ImgRow;
-	int32_t ColumnToCheck = (KerColumn - KerWidth/2) + ImgColumn;
-
 	if((RowToCheck < 0) || (RowToCheck >= ImgHeight) || 
 		(ColumnToCheck < 0) || (ColumnToCheck >= ImgWidth))
 	{
@@ -61,8 +57,7 @@ static void *cross_correlation(void *ThreadArg)
 					KerWeight = Args->Kernel->Weight[KerRow][KerColumn];
 					
 					/* Check if correspondent image pixel is out of bound */
-					if(is_out_of_bound(KerRow, KerColumn, ImgRow, ImgColumn,
-										ImgHeight, ImgWidth, KerHeight, KerWidth))
+					if(is_out_of_bound(ImgHeight, ImgWidth, ImgTmpRow, ImgTmpCol))
 					{
 						switch(Args->BorderHandling)
 						{
@@ -97,44 +92,6 @@ static void *cross_correlation(void *ThreadArg)
 			Acc = 0.0;
 		}
 	}
-}
-/*******************************************************************************/
-static void *convolution(void *ThreadArg)
-{
-	/* Args->(int32_t StartRow, int32_t EndRow kernel_t *Kernel img_t *InputImage) */
-	correlation_work_t *Args = (correlation_work_t *)ThreadArg;
-
-	float		**NewWeight;
-	int32_t		TmpRow, TmpCol;
-
-	/* Allocate memory for convolution kernel */		
-	NewWeight = (float **)malloc(sizeof(float *) * Args->Kernel->Height);
-	for(int32_t Row = 0; Row < Args->Kernel->Height; Row++)
-	{
-		NewWeight[Row] = (float *)malloc(sizeof(float) * Args->Kernel->Width);
-	}
-
-	/* Convolution is a cross correlation with the kernel matrix rotated 180° */
-	/* Rotating kernel matrix 180° */
-	for(int32_t Row = 0; Row < Args->Kernel->Height; Row++)
-	{
-		for(int32_t Column = 0; Column < Args->Kernel->Width; Column++)
-		{
-			TmpRow = Args->Kernel->Height - (1 + Row);
-			TmpCol = Args->Kernel->Width - (1 + Column);
-			NewWeight[Row][Column] = Args->Kernel->Weight[TmpRow][TmpCol];
-		}
-	}
-
-	for(int32_t Row = 0; Row < Args->Kernel->Height; Row++)
-	{
-		free(Args->Kernel->Weight[Row]);
-	}
-	free(Args->Kernel->Weight);
-
-	Args->Kernel->Weight = NewWeight;
-
-	cross_correlation((void *)Args);
 }
 
 /*=============================================================================*/
@@ -346,7 +303,7 @@ kernel_t *create_kernel_high_pass_filter(int32_t Height, int32_t Width, int Type
 
 	switch(Type)
 	{
-		case LAPLACIAN_OPERATOR:
+		case LAPLACIAN_OPERATOR_NORM:
 			for(int32_t Row = 0; Row < Height; Row++)
 			{
 				for(int32_t Column = 0; Column < Width; Column++)
@@ -358,6 +315,23 @@ kernel_t *create_kernel_high_pass_filter(int32_t Height, int32_t Width, int Type
 					else
 					{
 						Kernel->Weight[Row][Column] = -1.0/(Height * Width);
+					}
+				}
+			}
+			break;
+
+		case LAPLACIAN_OPERATOR:
+			for(int32_t Row = 0; Row < Height; Row++)
+			{
+				for(int32_t Column = 0; Column < Width; Column++)
+				{
+					if((Row == Height/2) && (Column == Width/2))
+					{
+						Kernel->Weight[Row][Column] = ((Height * Width) - 1);
+					}
+					else
+					{
+						Kernel->Weight[Row][Column] = -1.0;
 					}
 				}
 			}
@@ -379,23 +353,42 @@ kernel_t *create_kernel_high_pass_filter(int32_t Height, int32_t Width, int Type
 	Threads --> Number of threads to be used in parallel on computacion
 	Border  --> BORDER_BLACK
 	            BORDER_WHITE */
-img_t *parallel_cross_correlation(img_t *Img, kernel_t *Kernel, int32_t Threads, int Border)
+img_t *parallel_cross_correlation(img_t *Img, kernel_t *Kernel, int32_t ThreadsNum, int Border)
 {
-	if((Img == NULL) || (Kernel == NULL) || (Threads < 1))
+	if((Img == NULL) || (Kernel == NULL) || (ThreadsNum < 1))
 		return NULL;
 
-	correlation_work_t	ThreadArg;
+	correlation_work_t	ThreadArg[ThreadsNum];
+	img_t				*OutputImg;
+	pthread_t			ThreadId[ThreadsNum];
 
-	ThreadArg.StartRow = 0;
-	ThreadArg.EndRow = Img->Height;
-	ThreadArg.BorderHandling = Border;
-	ThreadArg.Kernel = Kernel;
-	ThreadArg.InputImage = Img;
-	ThreadArg.OutputImage = new_BMP_as_size(Img);
+	OutputImg = new_BMP_as_size(Img);
 
-	cross_correlation((void *)&ThreadArg);
+	/* Creating threads arguments and starting threads */
+	for(int32_t i = 0; i < ThreadsNum; i++)
+	{
+		ThreadArg[i].StartRow = i * Img->Height/ThreadsNum;
+		
+		if(i == ThreadsNum - 1)
+			ThreadArg[i].EndRow = Img->Height;
+		else
+			ThreadArg[i].EndRow = ThreadArg[i].StartRow + Img->Height/ThreadsNum;
 
-	return ThreadArg.OutputImage;
+		
+		ThreadArg[i].BorderHandling = Border;
+		ThreadArg[i].Kernel = Kernel;
+		ThreadArg[i].InputImage = Img;
+		ThreadArg[i].OutputImage = OutputImg;
+
+		pthread_create(&ThreadId[i], NULL, cross_correlation, (void *)&ThreadArg[i]);
+	}
+
+	for(int32_t i = 0; i < ThreadsNum; i++)
+	{
+		pthread_join(ThreadId[i], NULL);
+	}
+
+	return OutputImg;
 }
 /*******************************************************************************/
 /* Makes convolution betwen the kernel and image using multiple threads.
@@ -405,30 +398,122 @@ img_t *parallel_cross_correlation(img_t *Img, kernel_t *Kernel, int32_t Threads,
 	Threads --> Number of threads to be used in parallel on computacion
 	Border  --> BORDER_BLACK
 	            BORDER_WHITE */
-img_t *parallel_convolution(img_t *Img, kernel_t *Kernel, int32_t Threads, int Border)
+img_t *parallel_convolution(img_t *Img, kernel_t *Kernel, int32_t ThreadsNum, int Border)
 {
-	if((Img == NULL) || (Kernel == NULL) || (Threads < 1))
+	if((Img == NULL) || (Kernel == NULL) || (ThreadsNum < 1))
 		return NULL;
 
-	correlation_work_t	ThreadArg;
+	correlation_work_t	ThreadArg[ThreadsNum];
+	img_t				*OutputImg;
+	pthread_t			ThreadId[ThreadsNum];
 
-	ThreadArg.StartRow = 0;
-	ThreadArg.EndRow = Img->Height;
-	ThreadArg.BorderHandling = Border;
-	ThreadArg.Kernel = Kernel;
-	ThreadArg.InputImage = Img;
-	ThreadArg.OutputImage = new_BMP_as_size(Img);
+	int32_t				TmpRow, TmpCol;
+	kernel_t			*NewKernel;
 
-	convolution((void *)&ThreadArg);
+	OutputImg = new_BMP_as_size(Img);
 
-	return ThreadArg.OutputImage;
+	/* Allocate memory for convolution kernel */
+	NewKernel = (kernel_t *)malloc(sizeof(kernel_t));
+
+	NewKernel->Height = Kernel->Height;
+	NewKernel->Width = Kernel->Width;
+			
+	NewKernel->Weight = (float **)malloc(sizeof(float *) * Kernel->Height);
+	for(int32_t Row = 0; Row < Kernel->Height; Row++)
+	{
+		NewKernel->Weight[Row] = (float *)malloc(sizeof(float) * Kernel->Width);
+	}
+
+	/* Convolution is a cross correlation with the kernel matrix rotated 180° */
+	/* Rotating kernel matrix 180° */
+	for(int32_t Row = 0; Row < Kernel->Height; Row++)
+	{
+		for(int32_t Column = 0; Column < Kernel->Width; Column++)
+		{
+			TmpRow = Kernel->Height - (1 + Row);
+			TmpCol = Kernel->Width - (1 + Column);
+			NewKernel->Weight[Row][Column] = Kernel->Weight[TmpRow][TmpCol];
+		}
+	}
+
+
+	/* Creating threads arguments and starting threads */
+	for(int32_t i = 0; i < ThreadsNum; i++)
+	{
+		ThreadArg[i].StartRow = i * Img->Height/ThreadsNum;
+		
+		if(i == ThreadsNum - 1)
+			ThreadArg[i].EndRow = Img->Height;
+		else
+			ThreadArg[i].EndRow = ThreadArg[i].StartRow + Img->Height/ThreadsNum;
+
+		
+		ThreadArg[i].BorderHandling = Border;
+		ThreadArg[i].Kernel = NewKernel;
+		ThreadArg[i].InputImage = Img;
+		ThreadArg[i].OutputImage = OutputImg;
+
+		pthread_create(&ThreadId[i], NULL, cross_correlation, (void *)&ThreadArg[i]);
+	}
+
+	for(int32_t i = 0; i < ThreadsNum; i++)
+	{
+		pthread_join(ThreadId[i], NULL);
+	}
+
+	free_kernel(NewKernel);
+	
+	return OutputImg;
 }
+/*******************************************************************************/
+/* Generate the histogram for a given image */
+void histogram(img_t *Img)
+{
+	uint32_t	Grey[256] = {0};
+	uint32_t	NumPixel = Img->Height * Img->Width;
+	uint32_t	MaxSamePixel = 0;
+	float		Percent;
+	float		NormalPercent;
+	uint8_t		HeaderFlag = 1;
 
+	/* Acquiring histogram data */
+	for(int32_t Row = 0; Row < Img->Height; Row++)
+	{
+		for(int32_t Column = 0; Column < Img->Width; Column++)
+		{
+			Grey[Img->Pixel24[Row][Column].Red]++;
+		}
+	}
 
+	for(int32_t i = 0; i < 256; i++)
+	{
+		if(Grey[i] > MaxSamePixel)
+			MaxSamePixel = Grey[i];
+	}
 
-
-
-
+	/* Printing histogram */
+	printf("               NORMALIZED GRAPH\n");
+	for(int32_t i = 0; i < 256; i++)
+	{
+		Percent = 100.0 * (float)Grey[i] / (float)NumPixel;
+		NormalPercent = 100.0 * (float)Grey[i] / (float)MaxSamePixel;
+		
+		for(int32_t j = 0; j < 50; j++)
+		{
+			if((j <= NormalPercent/2) && (HeaderFlag == 0))
+				printf("#");
+			else
+				printf(" ");
+		}
+		if(HeaderFlag == 0)
+			printf("| %d / %0.4f%% / %u\n", i, Percent, Grey[i]);
+		else
+		{
+			printf("| Grey / Percent / pixels\n");
+			HeaderFlag = 0;
+		}
+	}
+}
 
 
 
