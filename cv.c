@@ -76,7 +76,7 @@ static void *cross_correlation(void *ThreadArg)
 					}
 					else
 					{
-						Acc += KerWeight * Args->InputImage->Pixel24[ImgTmpRow][ImgTmpCol].Red;
+						Acc += KerWeight * Args->InputImage->Pixel8[ImgTmpRow][ImgTmpCol];
 					}
 				}
 			}
@@ -86,9 +86,8 @@ static void *cross_correlation(void *ThreadArg)
 			else if(Acc < 0)
 				Acc = 0;
 				
-			Args->OutputImage->Pixel24[ImgRow][ImgColumn].Red = (uint8_t)Acc;
-			Args->OutputImage->Pixel24[ImgRow][ImgColumn].Green = (uint8_t)Acc;
-			Args->OutputImage->Pixel24[ImgRow][ImgColumn].Blue = (uint8_t)Acc;
+			Args->OutputImage->Pixel8[ImgRow][ImgColumn] = (uint8_t)Acc;
+			
 			Acc = 0.0;
 		}
 	}
@@ -98,7 +97,7 @@ static void *cross_correlation(void *ThreadArg)
 /*##########                     MAIN FUNCTIONS                      ##########*/
 /*=============================================================================*/
 /*******************************************************************************/
-/* Convert RGB to grayscale. Return -1 on failure or 0 on success. [NEED TEST]
+/* Convert RGB to grayscale. Return NULL on failure.
 	(method: channels average) ==> GRAY_AVERAGE
 	Pixel = (Red + Green + Blue)/3
 	(method: channel-dependent luminance perception) ==> GRAY_LUMI_PERCEP
@@ -139,18 +138,15 @@ img_t *RGB_to_grayscale(img_t *InputImage, int Method)
 			return NULL;
 	}
 
-	OutImg = new_BMP_as_size(InputImage);
+	OutImg = new_BMP_as_size(InputImage, GRAY_8BITS);
 	
 	for(int32_t Row = 0; Row < InputImage->Height; Row++)
 	{
 		for(int32_t Column = 0; Column < InputImage->Width; Column++)
 		{
-			OutImg->Pixel24[Row][Column].Red = ((InputImage->Pixel24[Row][Column].Red * RedWeight) 
-			                                  + (InputImage->Pixel24[Row][Column].Green * GreenWeight)
-			                                  + (InputImage->Pixel24[Row][Column].Blue * BlueWeight))/10000;
-
-			OutImg->Pixel24[Row][Column].Green = OutImg->Pixel24[Row][Column].Red;
-			OutImg->Pixel24[Row][Column].Blue = OutImg->Pixel24[Row][Column].Red;
+			OutImg->Pixel8[Row][Column] = ((InputImage->Pixel24[Row][Column].Red * RedWeight) 
+			                             + (InputImage->Pixel24[Row][Column].Green * GreenWeight)
+			                             + (InputImage->Pixel24[Row][Column].Blue * BlueWeight))/10000;
 		}
 	}
 
@@ -169,7 +165,7 @@ img_t *channel_pass_filter(img_t *InputImage, int ChannelSelect)
 
 	img_t	*OutImg;
 
-	OutImg = new_BMP_as_size(InputImage);
+	OutImg = new_BMP_as_size(InputImage, RGB_24BITS);
 
 	switch(ChannelSelect)
 	{
@@ -355,14 +351,14 @@ kernel_t *create_kernel_high_pass_filter(int32_t Height, int32_t Width, int Type
 	            BORDER_WHITE */
 img_t *parallel_cross_correlation(img_t *Img, kernel_t *Kernel, int32_t ThreadsNum, int Border)
 {
-	if((Img == NULL) || (Kernel == NULL) || (ThreadsNum < 1))
+	if((Img == NULL) || (Kernel == NULL) || (ThreadsNum < 1) || (Img->Pixel8 == NULL))
 		return NULL;
 
 	correlation_work_t	ThreadArg[ThreadsNum];
 	img_t				*OutputImg;
 	pthread_t			ThreadId[ThreadsNum];
 
-	OutputImg = new_BMP_as_size(Img);
+	OutputImg = new_BMP_as_size(Img, GRAY_8BITS);
 
 	/* Creating threads arguments and starting threads */
 	for(int32_t i = 0; i < ThreadsNum; i++)
@@ -400,7 +396,7 @@ img_t *parallel_cross_correlation(img_t *Img, kernel_t *Kernel, int32_t ThreadsN
 	            BORDER_WHITE */
 img_t *parallel_convolution(img_t *Img, kernel_t *Kernel, int32_t ThreadsNum, int Border)
 {
-	if((Img == NULL) || (Kernel == NULL) || (ThreadsNum < 1))
+	if((Img == NULL) || (Kernel == NULL) || (ThreadsNum < 1) || (Img->Pixel8 == NULL))
 		return NULL;
 
 	correlation_work_t	ThreadArg[ThreadsNum];
@@ -410,7 +406,7 @@ img_t *parallel_convolution(img_t *Img, kernel_t *Kernel, int32_t ThreadsNum, in
 	int32_t				TmpRow, TmpCol;
 	kernel_t			*NewKernel;
 
-	OutputImg = new_BMP_as_size(Img);
+	OutputImg = new_BMP_as_size(Img, GRAY_8BITS);
 
 	/* Allocate memory for convolution kernel */
 	NewKernel = (kernel_t *)malloc(sizeof(kernel_t));
@@ -469,7 +465,13 @@ img_t *parallel_convolution(img_t *Img, kernel_t *Kernel, int32_t ThreadsNum, in
 /* Generate the histogram for a given image */
 void histogram(img_t *Img)
 {
-	uint32_t	Grey[256] = {0};
+	if((Img == NULL) || (Img->Pixel8 == NULL))
+	{
+		printf("Error: [histogram()] --> Invalid image argument.\n\n");
+		return;
+	}
+
+	uint32_t	Gray[256] = {0};
 	uint32_t	NumPixel = Img->Height * Img->Width;
 	uint32_t	MaxSamePixel = 0;
 	float		Percent;
@@ -481,22 +483,22 @@ void histogram(img_t *Img)
 	{
 		for(int32_t Column = 0; Column < Img->Width; Column++)
 		{
-			Grey[Img->Pixel24[Row][Column].Red]++;
+			Gray[Img->Pixel8[Row][Column]]++;
 		}
 	}
 
 	for(int32_t i = 0; i < 256; i++)
 	{
-		if(Grey[i] > MaxSamePixel)
-			MaxSamePixel = Grey[i];
+		if(Gray[i] > MaxSamePixel)
+			MaxSamePixel = Gray[i];
 	}
 
 	/* Printing histogram */
 	printf("               NORMALIZED GRAPH\n");
 	for(int32_t i = 0; i < 256; i++)
 	{
-		Percent = 100.0 * (float)Grey[i] / (float)NumPixel;
-		NormalPercent = 100.0 * (float)Grey[i] / (float)MaxSamePixel;
+		Percent = 100.0 * (float)Gray[i] / (float)NumPixel;
+		NormalPercent = 100.0 * (float)Gray[i] / (float)MaxSamePixel;
 		
 		for(int32_t j = 0; j < 50; j++)
 		{
@@ -506,10 +508,10 @@ void histogram(img_t *Img)
 				printf(" ");
 		}
 		if(HeaderFlag == 0)
-			printf("| %d / %0.4f%% / %u\n", i, Percent, Grey[i]);
+			printf("| %d / %0.4f%% / %u\n", i, Percent, Gray[i]);
 		else
 		{
-			printf("| Grey / Percent / pixels\n");
+			printf("| Gray / Percent / pixels\n");
 			HeaderFlag = 0;
 		}
 	}

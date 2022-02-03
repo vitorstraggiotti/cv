@@ -126,7 +126,7 @@ int main(int argc, char* argv[])
 	/*                TESTING: create_kernel_low_pass_filter()                   */
 	/*===========================================================================*/
 	printf("Creating low pass filter kernel ...\n");
-	LowPassKernel = create_kernel_low_pass_filter(11, 11, NEIGHBOR_AVERAGE);
+	LowPassKernel = create_kernel_low_pass_filter(5, 5, NEIGHBOR_AVERAGE);
 	if(LowPassKernel == NULL)
 		exit_msg("Error: Could not create low pass filter kernel.\n", EXIT_FAILURE);
 
@@ -142,27 +142,28 @@ int main(int argc, char* argv[])
 	/*                 TESTING: parallel_cross_correlation()                     */
 	/*===========================================================================*/
 	ThreadNum = 4;
+	ImgToGrayAverage = RGB_to_grayscale(InputImage, GRAY_AVERAGE);
 	
 	printf("Making cross correlation (LOW_PASS, BLACK_BORDER) ...\n");
-	ImgLowPassBlack = parallel_cross_correlation(InputImage, LowPassKernel, ThreadNum, BORDER_BLACK);
+	ImgLowPassBlack = parallel_cross_correlation(ImgToGrayAverage, LowPassKernel, ThreadNum, BORDER_BLACK);
 	if(ImgLowPassBlack == NULL)
 		exit_msg("Error: Could not make cross correlation (LOW_PASS, BLACK_BORDER).\n",
 					EXIT_FAILURE);
 
 	printf("Making cross correlation (LOW_PASS, WHITE_BORDER) ...\n");
-	ImgLowPassWhite = parallel_cross_correlation(InputImage, LowPassKernel, ThreadNum, BORDER_WHITE);
+	ImgLowPassWhite = parallel_cross_correlation(ImgToGrayAverage, LowPassKernel, ThreadNum, BORDER_WHITE);
 	if(ImgLowPassWhite == NULL)
 		exit_msg("Error: Could not make cross correlation (LOW_PASS, BLACK_WHITE).\n",
 					EXIT_FAILURE);
 
 	printf("Making cross correlation (HIGH_PASS, BLACK_BORDER) ...\n");
-	ImgHighPassBlack = parallel_cross_correlation(InputImage, HighPassKernel, ThreadNum, BORDER_BLACK);
+	ImgHighPassBlack = parallel_cross_correlation(ImgToGrayAverage, HighPassKernel, ThreadNum, BORDER_BLACK);
 	if(ImgHighPassBlack == NULL)
 		exit_msg("Error: Could not make cross correlation (HIGH_PASS, BLACK_BORDER).\n",
 					EXIT_FAILURE);
 
 	printf("Making cross correlation (HIGH_PASS, WHITE_BORDER) ...\n");
-	ImgHighPassWhite = parallel_cross_correlation(InputImage, HighPassKernel, ThreadNum, BORDER_WHITE);
+	ImgHighPassWhite = parallel_cross_correlation(ImgToGrayAverage, HighPassKernel, ThreadNum, BORDER_WHITE);
 	if(ImgHighPassWhite == NULL)
 		exit_msg("Error: Could not make cross correlation (HIGH_PASS, BLACK_WHITE).\n",
 					EXIT_FAILURE);
@@ -190,25 +191,25 @@ int main(int argc, char* argv[])
 	/*                 TESTING: parallel_convolution()                           */
 	/*===========================================================================*/
 	printf("Making convolution (LOW_PASS, BLACK_BORDER) ...\n");
-	ImgConvLowPassBlack = parallel_convolution(InputImage, LowPassKernel, ThreadNum, BORDER_BLACK);
+	ImgConvLowPassBlack = parallel_convolution(ImgToGrayAverage, LowPassKernel, ThreadNum, BORDER_BLACK);
 	if(ImgConvLowPassBlack == NULL)
 		exit_msg("Error: Could not make convolution (LOW_PASS, BLACK_BORDER).\n",
 					EXIT_FAILURE);
 
 	printf("Making convolution (LOW_PASS, WHITE_BORDER) ...\n");
-	ImgConvLowPassWhite = parallel_convolution(InputImage, LowPassKernel, ThreadNum, BORDER_WHITE);
+	ImgConvLowPassWhite = parallel_convolution(ImgToGrayAverage, LowPassKernel, ThreadNum, BORDER_WHITE);
 	if(ImgConvLowPassWhite == NULL)
 		exit_msg("Error: Could not make convolution (LOW_PASS, BLACK_WHITE).\n",
 					EXIT_FAILURE);
 
 	printf("Making convolution (HIGH_PASS, BLACK_BORDER) ...\n");
-	ImgConvHighPassBlack = parallel_convolution(InputImage, HighPassKernel, ThreadNum, BORDER_BLACK);
+	ImgConvHighPassBlack = parallel_convolution(ImgToGrayAverage, HighPassKernel, ThreadNum, BORDER_BLACK);
 	if(ImgConvHighPassBlack == NULL)
 		exit_msg("Error: Could not make convolution (HIGH_PASS, BLACK_BORDER).\n",
 					EXIT_FAILURE);
 
 	printf("Making convolution (HIGH_PASS, WHITE_BORDER) ...\n");
-	ImgConvHighPassWhite = parallel_convolution(InputImage, HighPassKernel, ThreadNum, BORDER_WHITE);
+	ImgConvHighPassWhite = parallel_convolution(ImgToGrayAverage, HighPassKernel, ThreadNum, BORDER_WHITE);
 	if(ImgConvHighPassWhite == NULL)
 		exit_msg("Error: Could not make convolution (HIGH_PASS, BLACK_WHITE).\n",
 					EXIT_FAILURE);
@@ -231,7 +232,7 @@ int main(int argc, char* argv[])
 	free_img(ImgConvLowPassWhite);
 	free_img(ImgConvHighPassBlack);
 	free_img(ImgConvHighPassWhite);
-		
+
 	/*===========================================================================*/
 	/*                           TESTING: free_kernel()                          */
 	/*===========================================================================*/
@@ -242,10 +243,11 @@ int main(int argc, char* argv[])
 	/*                           TESTING: histogram()                            */
 	/*===========================================================================*/
 	printf("Generating histogram ...\n\n");
-	histogram(InputImage);
+	histogram(ImgToGrayAverage);
 
 	
 	free_img(InputImage);
+	free_img(ImgToGrayAverage);
 
 	return 0;
 }

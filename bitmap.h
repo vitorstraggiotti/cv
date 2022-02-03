@@ -3,19 +3,13 @@
  *                                                                   *
  * Author: Vitor Henrique Andrade Helfensteller Straggiotti Silva    *
  * Created on: 28/05/2021 (DD/MM/YYYY)                               *
- * Version: 1.1.0  ([major].[minor].[bugs])
+ * Version: 1.2.0  ([major].[minor].[bugs])
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #ifndef __BITMAP_H__
 #define __BITMAP_H__
 
 #include <stdint.h>
-
-/*******************************************************************************
- *                            MACROS AND TYPEDEF                               *
- *******************************************************************************/
- 
-//========================================= IMAGE FILE MANIPULATION ============
 
 //Sizes of bitmap headers in bytes
 #define BITMAP_V1_INFOHEADER	40
@@ -197,10 +191,19 @@ struct bmp_headerV5
 
 struct img
 {
-	//Dimensions
-	int32_t Width;
-	int32_t Height;
-	struct pixel_24bpp **Pixel24;
+	/* Image dimensions */
+	int32_t	Width;
+	int32_t	Height;
+
+	/* Pixel map */
+	struct	pixel_24bpp **Pixel24;	/* 3 channels with 8 bits (RGB) */
+	uint8_t	**Pixel8;				/* 1 channel with 8 bits (Grayscale) */
+};
+
+enum img_type
+{
+	RGB_24BITS,
+	GRAY_8BITS
 };
 
 //bmp_headerV1_t ==> BITMAPINFOHEADER	(40 bytes)
@@ -239,13 +242,17 @@ img_t *read_BMP(const char *Filename);
 
 
 /* Create new empty image with given size. 								[OK]
-   Return NULL if fail */
-img_t *new_BMP(int32_t Width, int32_t Height);
+   Return NULL if fail.
+   Type --> RGB_24BITS
+            GREY_8BITS */
+img_t *new_BMP(int32_t Width, int32_t Height, int Type);
 
 
 /* Create new empty image with same size as given image. 				[OK]
-   Return NULL if fail */
-img_t *new_BMP_as_size(img_t *OriginalImage);
+   Return NULL if fail.
+   Type --> RGB_24BITS
+            GREY_8BITS */
+img_t *new_BMP_as_size(img_t *OriginalImage, int Type);
 
 
 /* Create a copy of given image. 										[OK]
@@ -253,15 +260,14 @@ img_t *new_BMP_as_size(img_t *OriginalImage);
 img_t *copy_BMP(img_t *OriginalImage);
 
 
-/* Display header information. 											[OK]
-   Does not return anything */
-void display_header(const char *Filename);
-
-
 /* Frees space occupied by PixelMatrix. 								[OK]
    Does not return anything */
 void free_img(img_t *Img);
 
 
-#endif
+/* Display header information. 											[OK]
+   Does not return anything */
+void display_header(const char *Filename);
 
+
+#endif

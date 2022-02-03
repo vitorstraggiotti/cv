@@ -5,7 +5,7 @@
  * 																				*
  * Autor: Vitor Henrique Andrade Helfensteller Satraggiotti Silva				*
  * Start date: 28/05/2021	(DD/MM/YYYY)										*
- * Version: 1.1.0  ([major].[minor].[bugs])										*
+ * Version: 1.2.0  ([major].[minor].[bugs])										*
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * **/
  
  // 1) Adicionar suporte para imagens 8 bits (escala de cinza)
@@ -15,10 +15,13 @@
  
 #include <stdlib.h>
 #include <stdio.h>
-#include <stdint.h>		//To use precise data types (uint8_t, uint16_t ...)
+#include <stdint.h>		/* To use precise data types (uint8_t, uint16_t ...) */
 
 #include "bitmap.h"
 
+/*******************************************************************************
+ *                                 HELPER FUNCTIONS                            *
+ *******************************************************************************/
 
 /*******************************************************************************
  *                              FUNCTION DEFINITIONS                           *
@@ -34,18 +37,54 @@ int save_BMP(img_t *Img, const char *Filename)
 	int32_t 		SizeWidthByte;
 	int32_t			TotalWidthMod4;
 
-	/* Evaluate image dimensions */
+	/* Validate arguments */
+	if((Img == NULL) || (Filename == NULL))
+	{
+		printf("Error: [save_BMP()] --> Invalid arguments.\n\n");
+		return -1;
+	}
+
+	if((Img->Pixel24 == NULL) && (Img->Pixel8 == NULL))
+	{
+		printf("Error: [save_BMP()] --> Image argument is empty.\n\n");
+		return -1;
+	}
+	
 	if((Img->Width > 20000)||(Img->Height > 20000))
 	{
-		printf("Error: Image dimensions exceed creation limits of 20000 by 20000\n\n");
+		printf("Error: [save_BMP()] --> Dimensions too big. Limit: 20000 x 20000.\n\n");
 		return -1;
 	}
 	
 	if((Img->Width < 2)||(Img->Height < 2))
 	{
-		printf("Error: Dimensions for image creation should be equal or greater than 2 by 2\n\n");
+		printf("Error: [save_BMP()] --> Dimensions too small. Limit: 2 x 2.\n\n");
 		return -1;
 	}
+
+	/*============================== Temporary adjustment =======================*/
+	/*                CRAP IMPLEMENTATION !! FIX AS SOON AS POSSIBLE !!!         */
+	/* Convert 8bit gray to 24bit RGB gray if necessary because saving in 8bit format is
+		not supported for now. NEED TO IMPLEMENT PROPER WAY TO SAVE 8BIT GRAYSCALE!!! */
+	if(Img->Pixel24 == NULL)
+	{
+		Img->Pixel24 = (pixel24_t **)malloc(sizeof(pixel24_t *) * Img->Height);
+		for(int32_t Row = 0; Row < Img->Height; Row++)
+		{
+			Img->Pixel24[Row] = (pixel24_t *)malloc(sizeof(pixel24_t) * Img->Width);
+		}
+
+		for(int32_t Row = 0; Row < Img->Height; Row++)
+		{
+			for(int32_t Column = 0; Column < Img->Width; Column++)
+			{
+				Img->Pixel24[Row][Column].Red   = Img->Pixel8[Row][Column];
+				Img->Pixel24[Row][Column].Green = Img->Pixel8[Row][Column];
+				Img->Pixel24[Row][Column].Blue  = Img->Pixel8[Row][Column];
+			}
+		}
+	}
+	/*===========================================================================*/
 
 	FileHeader.CharID_1 = 0x42;
 	FileHeader.CharID_2 = 0x4D;
@@ -84,19 +123,19 @@ int save_BMP(img_t *Img, const char *Filename)
 	ImageFile = fopen(Filename, "wb");
 	if(ImageFile == NULL)
 	{
-		printf("Error: problem ocurred while creating image file\n\n");
+		printf("Error: [save_BMP()] --> Problem ocurred while creating image file.\n\n");
 		return -1;
 	}
 	
 	/* Writing headers */
 	if(fwrite(&FileHeader, sizeof(file_header_t), 1, ImageFile) != 1)
 	{
-		printf("Error: Could not write \"File Header\" to file.\n\n");
+		printf("Error: [save_BMP()] --> Could not write \"File Header\" to file.\n\n");
 		return -1;
 	}
 	if(fwrite(&BMPHeaderV1, sizeof(bmp_headerV1_t), 1, ImageFile) != 1)
 	{
-		printf("Error: Could not write \"BMP Header\" to file.\n\n");
+		printf("Error: [save_BMP()] --> Could not write \"BMP Header\" to file.\n\n");
 		return -1;
 	}
 	
@@ -107,7 +146,7 @@ int save_BMP(img_t *Img, const char *Filename)
 		{
 			if(fwrite(&Img->Pixel24[row][column], sizeof(pixel24_t), 1, ImageFile) != 1)
 			{
-				printf("Error: Could not write pixel to file.\nn");
+				printf("Error: [save_BMP()] --> Could not write pixel to file.\nn");
 				return -1;
 			}
 
@@ -118,7 +157,7 @@ int save_BMP(img_t *Img, const char *Filename)
 				{
 					if(fwrite(&ByteZero, sizeof(uint8_t), 3, ImageFile) != 1)
 					{
-						printf("Error: Could not write padding to file.\n\n");
+						printf("Error: [save_BMP()] --> Could not write padding to file.\n\n");
 						return -1;
 					}
 					
@@ -126,7 +165,7 @@ int save_BMP(img_t *Img, const char *Filename)
 				{
 					if(fwrite(&ByteZero, sizeof(uint8_t), 2, ImageFile) != 1)
 					{
-						printf("Error: Could not write padding to file.\n\n");
+						printf("Error: [save_BMP()] --> Could not write padding to file.\n\n");
 						return -1;
 					}
 					
@@ -134,7 +173,7 @@ int save_BMP(img_t *Img, const char *Filename)
 				{
 					if(fwrite(&ByteZero, sizeof(uint8_t), 1, ImageFile) != 1)
 					{
-						printf("Error: Could not write padding to file.\n\n");
+						printf("Error: [save_BMP()] --> Could not write padding to file.\n\n");
 						return -1;
 					}
 				}
@@ -168,25 +207,31 @@ img_t *read_BMP(const char *Filename)
 	ImageFile = fopen(Filename, "rb");
 	if(ImageFile == NULL)
 	{
-		printf("Error: Could not open file for pixel matrix extraction\n\n");
+		printf("Error: [read_BMP()] --> Could not open file for pixel matrix extraction.\n\n");
 		return NULL;
 	}
 	
 	/* Acquire file header and verify if valid */
 	if(fread(&FileHeader, sizeof(file_header_t), 1, ImageFile) != 1)
 	{
-		printf("Error: Could not read \"File Header\".\n\n");
+		printf("Error: [read_BMP()] --> Could not read \"File Header\".\n\n");
 		return NULL;
 	}
 	
 	if((FileHeader.CharID_1 != 0x42) || (FileHeader.CharID_2 != 0x4D))
 	{
-		printf("Error: input file is not a BMP image or have incompatible BMP file identifier. (should be: \"BM\")\n\n");
+		printf("Error: [read_BMP()] --> Input file was not recognized as a BMP image.\n\n");
 		return NULL;
 	}
 	
 	/* Allocate space for image struct */
 	Img = malloc(sizeof(img_t));
+
+	/*============================== Temporary adjustment =======================*/
+	/*                CRAP IMPLEMENTATION !! FIX AS SOON AS POSSIBLE !!!         */
+	/* Improvising as 8-bit image acquisition has not yet been implemented */
+	Img->Pixel8 = NULL;
+	/*============================================================================*/
 	
 	/* Finding out BMP header version and reading it */
 	switch(FileHeader.OffsetPixelMatrix - sizeof(file_header_t))
@@ -194,7 +239,7 @@ img_t *read_BMP(const char *Filename)
 		case BITMAP_V1_INFOHEADER :
 			if(fread(&BMPHeaderV1, sizeof(bmp_headerV1_t), 1, ImageFile) != 1)
 			{
-				printf("Error: Could not read \"Header V1\".\n\n");
+				printf("Error: [read_BMP()] --> Could not read \"Header V1\".\n\n");
 				return NULL;
 			}
 			Img->Width = BMPHeaderV1.Width;
@@ -204,7 +249,7 @@ img_t *read_BMP(const char *Filename)
 		case BITMAP_V2_INFOHEADER :
 			if(fread(&BMPHeaderV2, sizeof(bmp_headerV2_t), 1, ImageFile) != 1)
 			{
-				printf("Error: Could not read \"Header V2\". \n\n");
+				printf("Error: [read_BMP()] --> Could not read \"Header V2\". \n\n");
 				return NULL;
 			}
 			Img->Width = BMPHeaderV2.Width;
@@ -214,7 +259,7 @@ img_t *read_BMP(const char *Filename)
 		case BITMAP_V3_INFOHEADER :
 			if(fread(&BMPHeaderV3, sizeof(bmp_headerV3_t), 1, ImageFile) != 1)
 			{
-				printf("Error: Could not read \"Header V3\".\n\n");
+				printf("Error: [read_BMP()] --> Could not read \"Header V3\".\n\n");
 				return NULL;
 			}
 			Img->Width = BMPHeaderV3.Width;
@@ -224,7 +269,7 @@ img_t *read_BMP(const char *Filename)
 		case BITMAP_V4_INFOHEADER :
 			if(fread(&BMPHeaderV4, sizeof(bmp_headerV4_t), 1, ImageFile) != 1)
 			{
-				printf("Error: Could not read \"Header V4\".\n\n");
+				printf("Error: [read_BMP()] --> Could not read \"Header V4\".\n\n");
 				return NULL;
 			}
 			Img->Width = BMPHeaderV4.Width;
@@ -234,7 +279,7 @@ img_t *read_BMP(const char *Filename)
 		case BITMAP_V5_INFOHEADER :
 			if(fread(&BMPHeaderV5, sizeof(bmp_headerV5_t), 1, ImageFile) != 1)
 			{
-				printf("Error: Could not read \"Header V5\".\n\n");
+				printf("Error: [read_BMP()] --> Could not read \"Header V5\".\n\n");
 				return NULL;
 			}
 			Img->Width = BMPHeaderV5.Width;
@@ -242,7 +287,7 @@ img_t *read_BMP(const char *Filename)
 			break;
 			
 		default :
-			printf("Error: bitmap header is not supported. Suported bitmap headers for reading:\n");
+			printf("Error: [read_BMP()] --> Bitmap header is not supported. Suported bitmap headers:\n");
 			printf("       - BITMAPIFOHEADER     (V1)\n");
 			printf("       - BITMAPV2INFOHEADER  (V2)\n");
 			printf("       - BITMAPV3INFOHEADER  (V3)\n");
@@ -254,29 +299,29 @@ img_t *read_BMP(const char *Filename)
 	/* Allocate space for pixel matrix */
 	Img->Pixel24 = malloc(Img->Height * sizeof(pixel24_t*));
 	
-	for(int32_t row = 0; row < Img->Height; row++)
+	for(int32_t Row = 0; Row < Img->Height; Row++)
 	{
-		Img->Pixel24[row] = malloc(Img->Width * sizeof(pixel24_t));
+		Img->Pixel24[Row] = malloc(Img->Width * sizeof(pixel24_t));
 	}
 
 	/* Reading image and copying to pixel matrix */
-	for(int32_t row = 0; row < Img->Height; row++)
+	for(int32_t Row = 0; Row < Img->Height; Row++)
 	{
-		for(int32_t column = 0; column < Img->Width; column++)
+		for(int32_t Column = 0; Column < Img->Width; Column++)
 		{
-			if(fread(&Img->Pixel24[row][column], sizeof(pixel24_t), 1, ImageFile) != 1)
+			if(fread(&Img->Pixel24[Row][Column], sizeof(pixel24_t), 1, ImageFile) != 1)
 			{
-				printf("Error: Could not read pixel values from file.\n\n");
+				printf("Error: [read_BMP()] --> Could not read pixel values from file.\n\n");
 				return NULL;
 			}
 			
-			if(column == (Img->Width - 1))
+			if(Column == (Img->Width - 1))
 			{
 				if(((Img->Width * 3) % 4) == 1)
 				{
 					if(fread(&Trash, sizeof(uint8_t), 3, ImageFile) != 3)
 					{
-						printf("Error: Could not read 3 padding bytes.\n\n");
+						printf("Error: [read_BMP()] --> Could not read 3 padding bytes.\n\n");
 						return NULL;
 					}
 					
@@ -284,7 +329,7 @@ img_t *read_BMP(const char *Filename)
 				{
 					if(fread(&Trash, sizeof(uint8_t), 2, ImageFile) != 2)
 					{
-						printf("Error: Could not read 2 padding bytes.\n\n");
+						printf("Error: [read_BMP()] --> Could not read 2 padding bytes.\n\n");
 						return NULL;
 					}
 					
@@ -292,7 +337,7 @@ img_t *read_BMP(const char *Filename)
 				{
 					if(fread(&Trash, sizeof(uint8_t), 1, ImageFile) != 1)
 					{
-						printf("Error: Could not read 1 padding byte.\n\n");
+						printf("Error: [read_BMP()] --> Could not read 1 padding byte.\n\n");
 						return NULL;
 					}
 				}
@@ -306,46 +351,86 @@ img_t *read_BMP(const char *Filename)
 }
 /******************************************************************************/
 /* Create new empty image with given size.
-   Return NULL if fail */
-img_t *new_BMP(int32_t Width, int32_t Height)
+   Return NULL if fail.
+   Type --> RGB_24BITS
+            GREY_8BITS */
+img_t *new_BMP(int32_t Width, int32_t Height, int Type)
 {
-	img_t	*BlankImg;
-	
-	BlankImg = (img_t *)malloc(sizeof(img_t));
-	
-	BlankImg->Pixel24 = (pixel24_t **)malloc(Height * sizeof(pixel24_t *));
+	img_t	*BlankImg = NULL;
 
-	if(BlankImg->Pixel24 == NULL)
-		return NULL;
-
-	for(int32_t i = 0; i < Height; i++)
+	switch(Type)
 	{
-		BlankImg->Pixel24[i] = (pixel24_t *)malloc(Width * sizeof(pixel24_t));
+		case RGB_24BITS:
 
-		if(BlankImg->Pixel24[i] == NULL)
+			BlankImg = (img_t *)malloc(sizeof(img_t));
+
+			BlankImg->Width = Width;
+			BlankImg->Height = Height;
+
+			BlankImg->Pixel8 = NULL;
+
+			BlankImg->Pixel24 = (pixel24_t **)malloc(Height * sizeof(pixel24_t *));
+			if(BlankImg->Pixel24 == NULL)
+				return NULL;
+
+			for(int32_t Row = 0; Row < Height; Row++)
+			{
+				BlankImg->Pixel24[Row] = (pixel24_t *)malloc(Width * sizeof(pixel24_t));
+				if(BlankImg->Pixel24[Row] == NULL)
+					return NULL;
+
+				for(int32_t Column = 0; Column < Width; Column++)
+				{
+					BlankImg->Pixel24[Row][Column].Red   = 0;
+					BlankImg->Pixel24[Row][Column].Green = 0;
+					BlankImg->Pixel24[Row][Column].Blue  = 0;
+				}
+			}
+			break;
+
+		case GRAY_8BITS:
+
+			BlankImg = (img_t *)malloc(sizeof(img_t));
+
+			BlankImg->Width = Width;
+			BlankImg->Height = Height;
+
+			BlankImg->Pixel24 = NULL;
+
+			BlankImg->Pixel8 = (uint8_t **)malloc(Height * sizeof(uint8_t *));
+			if(BlankImg->Pixel8 == NULL)
+				return NULL;
+
+			for(int32_t Row = 0; Row < Height; Row++)
+			{
+				BlankImg->Pixel8[Row] = (uint8_t *)malloc(Width * sizeof(uint8_t));
+				if(BlankImg->Pixel8[Row] == NULL)
+					return NULL;
+
+				for(int32_t Column = 0; Column < Width; Column++)
+				{
+					BlankImg->Pixel8[Row][Column] = 0;
+				}
+			}
+			break;
+
+		default:
+			printf("Error: [new_BMP()] --> Invalid image type.\n\n");
 			return NULL;
-
-		for(int32_t j = 0; j < Width; j++)
-		{
-			BlankImg->Pixel24[i][j].Red = 0;
-			BlankImg->Pixel24[i][j].Green = 0;
-			BlankImg->Pixel24[i][j].Blue = 0;
-		}
 	}
-	
-	BlankImg->Width = Width;
-	BlankImg->Height = Height;
 	
 	return BlankImg;
 }
 /******************************************************************************/
 /* Create new empty image with same size as given image.
-   Return NULL if fail */
-img_t *new_BMP_as_size(img_t *OriginalImage)
+   Return NULL if fail.
+   Type --> RGB_24BITS
+            GREY_8BITS */
+img_t *new_BMP_as_size(img_t *OriginalImage, int Type)
 {
 	img_t *BlankImage;
 	
-	BlankImage = new_BMP(OriginalImage->Width, OriginalImage->Height);
+	BlankImage = new_BMP(OriginalImage->Width, OriginalImage->Height, Type);
 
 	return BlankImage;
 	
@@ -356,116 +441,94 @@ img_t *new_BMP_as_size(img_t *OriginalImage)
 img_t *copy_BMP(img_t *OriginalImage)
 {
 	img_t	*CopyImg;
-	
-	CopyImg = (img_t *)malloc(sizeof(img_t));
-	
-	CopyImg->Pixel24 = (pixel24_t **)malloc(OriginalImage->Height * sizeof(pixel24_t *));
 
-	if(CopyImg->Pixel24 == NULL)
+	if((OriginalImage == NULL) || ((OriginalImage->Pixel24 == NULL) && (OriginalImage->Pixel8 == NULL)))
 		return NULL;
 
-	for(int32_t i = 0; i < OriginalImage->Height; i++)
-	{
-		CopyImg->Pixel24[i] = (pixel24_t *)malloc(OriginalImage->Width * sizeof(pixel24_t));
-
-		if(CopyImg->Pixel24[i] == NULL)
-			return NULL;
-
-		for(int32_t j = 0; j < OriginalImage->Width; j++)
-		{
-			CopyImg->Pixel24[i][j].Red = OriginalImage->Pixel24[i][j].Red;
-			CopyImg->Pixel24[i][j].Green = OriginalImage->Pixel24[i][j].Green;
-			CopyImg->Pixel24[i][j].Blue = OriginalImage->Pixel24[i][j].Blue;
-		}
-	}
+	CopyImg = (img_t *)malloc(sizeof(img_t));
 	
 	CopyImg->Width = OriginalImage->Width;
 	CopyImg->Height = OriginalImage->Height;
+
+	if(OriginalImage->Pixel24 != NULL)
+	{
+		CopyImg->Pixel24 = (pixel24_t **)malloc(OriginalImage->Height * sizeof(pixel24_t *));
+		if(CopyImg->Pixel24 == NULL)
+			return NULL;
+
+		for(int32_t Row = 0; Row < OriginalImage->Height; Row++)
+		{
+			CopyImg->Pixel24[Row] = (pixel24_t *)malloc(OriginalImage->Width * sizeof(pixel24_t));
+			if(CopyImg->Pixel24[Row] == NULL)
+				return NULL;
+
+			for(int32_t Column = 0; Column < OriginalImage->Width; Column++)
+			{
+				CopyImg->Pixel24[Row][Column].Red = OriginalImage->Pixel24[Row][Column].Red;
+				CopyImg->Pixel24[Row][Column].Green = OriginalImage->Pixel24[Row][Column].Green;
+				CopyImg->Pixel24[Row][Column].Blue = OriginalImage->Pixel24[Row][Column].Blue;
+			}
+		}	
+	}
+	else
+	{
+		CopyImg->Pixel24 = NULL;
+	}
+	
+	if(OriginalImage->Pixel8 != NULL)
+	{
+		CopyImg->Pixel8 = (uint8_t **)malloc(OriginalImage->Height * sizeof(uint8_t *));
+		if(CopyImg->Pixel8 == NULL)
+			return NULL;
+
+		for(int32_t Row = 0; Row < OriginalImage->Height; Row++)
+		{
+			CopyImg->Pixel8[Row] = (uint8_t *)malloc(OriginalImage->Width * sizeof(uint8_t));
+			if(CopyImg->Pixel8[Row] == NULL)
+				return NULL;
+
+			for(int32_t Column = 0; Column < OriginalImage->Width; Column++)
+			{
+				CopyImg->Pixel8[Row][Column] = OriginalImage->Pixel8[Row][Column];
+			}
+		}
+	}
+	else
+	{
+		CopyImg->Pixel8 = NULL;
+	}
 	
 	return CopyImg;
 }
 /******************************************************************************/
-//Find dimensions of the BMP image [OK]
-#if 0
-dimensions_t dimensions_BMP(const char *Filename)
+/* Frees space occupied by Image */
+void free_img(img_t *Img)
 {
-	file_header_t	FileHeader;
-	bmp_headerV1_t	BMPHeaderV1;
-	bmp_headerV2_t	BMPHeaderV2;
-	bmp_headerV3_t	BMPHeaderV3;
-	bmp_headerV4_t	BMPHeaderV4;
-	bmp_headerV5_t	BMPHeaderV5;
-	dimensions_t Dimension;
-	FILE *Image;
-	
-	//Open image
-	Image = fopen(Filename, "rb");
-	if(Image == NULL)
+	if(Img == NULL)
+		return;
+
+	if(Img->Pixel24 != NULL)
 	{
-		printf("Error: problem ocurred while reading file for width information\n\n");
-		exit(EXIT_FAILURE);
-	}
-	
-	//Acquire file header and verify if valid
-	fread(&FileHeader, sizeof(file_header_t), 1, Image);
-	
-	if((FileHeader.CharID_1 != 0x42) || (FileHeader.CharID_2 != 0x4D))
-	{
-		printf("Error: input file is not a BMP image or have incompatible BMP file identifier. (should be: \"BM\")\n");
-		exit(EXIT_FAILURE);
-	}
-	
-	//Finding out BMP header version and reading it
-	switch(FileHeader.OffsetPixelMatrix - sizeof(file_header_t))
-	{
-		case BITMAP_V1_INFOHEADER :
-			fread(&BMPHeaderV1, sizeof(bmp_headerV1_t), 1, Image);
-			Dimension.Width = BMPHeaderV1.Width;
-			Dimension.Height = BMPHeaderV1.Height;
-			break;
-			
-		case BITMAP_V2_INFOHEADER :
-			fread(&BMPHeaderV2, sizeof(bmp_headerV2_t), 1, Image);
-			Dimension.Width = BMPHeaderV2.Width;
-			Dimension.Height = BMPHeaderV2.Height;
-			break;
-		
-		case BITMAP_V3_INFOHEADER :
-			fread(&BMPHeaderV3, sizeof(bmp_headerV3_t), 1, Image);
-			Dimension.Width = BMPHeaderV3.Width;
-			Dimension.Height = BMPHeaderV3.Height;
-			break;
-		
-		case BITMAP_V4_INFOHEADER :
-			fread(&BMPHeaderV4, sizeof(bmp_headerV4_t), 1, Image);
-			Dimension.Width = BMPHeaderV4.Width;
-			Dimension.Height = BMPHeaderV4.Height;
-			break;
-			
-		case BITMAP_V5_INFOHEADER :
-			fread(&BMPHeaderV5, sizeof(bmp_headerV5_t), 1, Image);
-			Dimension.Width = BMPHeaderV5.Width;
-			Dimension.Height = BMPHeaderV5.Height;
-			break;
-			
-		default :
-			printf("Error: bitmap header is not supported. Suported bitmap headers for reading:\n");
-			printf("       - BITMAPIFOHEADER     (V1)\n");
-			printf("       - BITMAPV2INFOHEADER  (V2)\n");
-			printf("       - BITMAPV3INFOHEADER  (V3)\n");
-			printf("       - BITMAPV4HEADER      (V4)\n");
-			printf("       - BITMAPV5HEADER      (V5)\n");
-			exit(EXIT_FAILURE);
+		for (int32_t Row = 0; Row < Img->Height; Row++)
+		{
+			free(Img->Pixel24[Row]);
+		}
+		free(Img->Pixel24);		
 	}
 
-	fclose(Image);
+	if(Img->Pixel8 != NULL)
+	{
+		for (int32_t Row = 0; Row < Img->Height; Row++)
+		{
+			free(Img->Pixel8[Row]);
+		}
+		free(Img->Pixel8);
+	}
 
-	return Dimension;
-
+	free(Img);
 }
-#endif
 /******************************************************************************/
-//Display header information [OK]
+/* Display image information present on header*/
 void display_header(const char *Filename)
 {		
 	file_header_t FileHeader;
@@ -949,17 +1012,6 @@ void display_header(const char *Filename)
 
 }
 
-/******************************************************************************/
-//Frees space occupied by Image
-void free_img(img_t *Img)
-{
-	for (int32_t row = 0; row < Img->Height; row++)
-	{
-		free(Img->Pixel24[row]);
-	}
-	free(Img->Pixel24);
-	free(Img);
-}
 
 
 
